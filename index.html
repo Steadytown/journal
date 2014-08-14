@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html data-ng-app="journalApp">
+  <head>
+    <title>Steadytown Journal</title>
+    <script src="superagent.js"></script>
+    <script src="bluebird.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/2.4.1/lodash.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.0-beta.17/angular.js"></script>
+    <link rel="stylesheet" href="index.css" />
+    <meta name="description" content="Follow Steadytown's activity">
+  </head>
+  <body data-ng-controller="JournalCtrl">
+    <h1>Steadytown</h1>
+    <div id="rules" class="hidden">
+      <p>
+      </p>
+    </div>
+    <div id="journal">
+      <h2>Journal Finder</h2>
+      <form data-ng-submit="journal.find()">
+        <label>
+          Business Unit: <select id="unit" data-ng-model="journal.unit" data-ng-options="u for u in units"></select>
+        </label>
+        <label>
+        From: <input type="date" id="from" data-ng-model="journal.from" />
+        </label>
+        <label>
+          To: <input type="date" id="to" data-ng-model="journal.to" />
+        </label>
+        <input type="submit" value="Find" />
+      </form>
+      <div id="results" data-ng-show="journal.resultsLoaded">
+        <div id="debits">
+          <h3>Debits</h3>
+          <table>
+            <tr data-ng-repeat="account in journal.debits">
+              <td>{{ account.name }}</td><td>{{ account.type }}</td><td>{{ account.total }}</td>
+            </tr>
+          </table>
+        </div>
+        <div id="credits">
+          <h3>Credits</h3>
+          <table>
+            <tr data-ng-repeat="account in journal.credits">
+              <td>{{ account.name }}</td><td>{{ account.type }}</td><td>{{ account.total }}</td>
+            </tr>
+          </table>
+        </div>
+    </div>
+  </body>
+<script>
+
+var journal = {};
+journal.from = new Date(2013, 6, 1);
+journal.to = new Date(2014, 5, 30);
+journal.unit = "All";
+journal.resultsLoaded = false;
+
+var journalApp = angular.module('journalApp', []);
+
+journalApp.controller('JournalCtrl', function ($scope) {
+  $scope.journal = journal;
+  $scope.units = [ "All", "Steady Family", "Steady Savings" ];
+
+  journal.find = function() {
+
+    var url = "http://127.0.0.1:28017/steadytown/journal/";
+    var req = window.superagent;
+
+    function toNumber(txt) {
+      return parseFloat(txt.replace(/\$|,/g, ''));
+    }
+
+    var dataAsync = new Promise(function(resolve, reject) {
+      req
+        .get(url)
+        .end(function(res) {
+          var content = JSON.parse(res.text).rows;
+          _.forEach(content, function(row) {
+            row.number = parseInt(row.number);
+
+            var fields = row.date.split("/");
+            var newDate = new Date(2000 + parseInt(fields[2]),
+              parseInt(fields[0] - 1), parseInt(fields[1]));
+            row.date = newDate;
+
+            if (row.debit) {
+              row.debit = toNumber(row.debit);
+            }
+            if (row.credit) {
+              row.credit = toNumber(row.credit);
+            }
+            if (row.Beneficiary) {
+              row.beneficiary = parseInt(row.beneficiary);
+            }
+          });
+          var result = _.sortBy(content, function(row) {
+            return row.date.getTime();
+          });
+          resolve(result);
+        });
+    });
+
+    dataAsync.then(function(data) {
+      return _.filter(data, function(row) {
+        return (journal.unit == "All" || journal.unit == row.businessUnit) &&
+          row.date >= journal.from && row.date <= journal.to;
+      });
+    }).then(function(data) {
+      function totalAmount(entries) {
+        var total = 0;
+        if (entries[0].norm == "Debit") {
+          _.forEach(entries, function(e) {
+            if (e.credit == "") {
+              total += e.debit;
+            } else {
+              total -= e.credit;
+            }
+          });
+        } else {
+          _.forEach(entries, function(e) {
+            if (e.debit == "") {
+              total += e.credit;
+            } else {
+              total -= e.debit;
+            }
+          });
+        }
+        return total;
+      }
+      return _.chain(data)
+        .groupBy("account")
+        .map(function(entries) {
+          return { name: entries[0].account, norm: entries[0].norm,
+            type: entries[0].type, total: totalAmount(entries) };
+        }).sortBy("type").value();
+    }).then(function(accounts) {
+      var debits = _.filter(accounts, function(a) {
+        return a.norm == "Debit";
+      });
+      var credits = _.filter(accounts, function(a) {
+        return a.norm == "Credit";
+      });
+      return [debits, credits];
+    }).then(function(results) {
+      $scope.$apply(function() {
+        journal.debits = results[0];
+        journal.credits = results[1];
+        journal.resultsLoaded = true;
+      });
+    });
+
+  }
+});
+</script>
+</html>
