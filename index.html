@@ -1,25 +1,30 @@
 <!DOCTYPE html>
-<html data-ng-app="journalApp">
+<html data-ng-app="steadyApp">
   <head>
     <title>Steadytown Journal</title>
+    <script src="moment.js"></script>
     <script src="superagent.js"></script>
     <script src="bluebird.js"></script>
+    <script src="papaparse.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/2.4.1/lodash.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.3.0-beta.17/angular.js"></script>
     <link rel="stylesheet" href="index.css" />
     <meta name="description" content="Follow Steadytown's activity">
   </head>
-  <body data-ng-controller="JournalCtrl">
+  <body>
     <h1>Steadytown</h1>
     <div id="rules" class="hidden">
       <p>
       </p>
     </div>
-    <div id="journal">
+    <div id="journal" data-ng-controller="JournalCtrl">
       <h2>Journal Finder</h2>
       <form data-ng-submit="journal.find()">
         <label>
           Business Unit: <select id="unit" data-ng-model="journal.unit" data-ng-options="u for u in units"></select>
+        </label>
+        <label>
+          Fund: <select id="fund" data-ng-model="journal.fund" data-ng-options="f for f in funds"></select>
         </label>
         <label>
         From: <input type="date" id="from" data-ng-model="journal.from" />
@@ -47,20 +52,75 @@
           </table>
         </div>
     </div>
+    <div id="motel" data-ng-controller="MotelCtrl">
+      <h2>Motel Entry Generator</h2>
+      <form data-ng-submit="motel.generate()">
+        <label>
+          Fund: <select id="fund" data-ng-model="motel.fund" data-ng-options="f for f in funds"></select>
+        </label>
+        <label>
+          Motel: <input type="text" id="name" data-ng-model="motel.name" />
+        </label>
+        <label>
+          Amount: <input type="number" id="amount" step="0.01" data-ng-model="motel.amount" />
+        </label>
+        <label>
+          Check In: <input type="date" id="checkin" data-ng-model="motel.checkin" />
+        </label>
+        <label>
+          Check Out: <input type="date" id="checkout" data-ng-model="motel.checkout" />
+        </label>
+        <label>
+          Family: <input type="number" id="family" data-ng-model="motel.family" />
+        </label>
+        <label>
+          Location: <input type="text" id="location" data-ng-model="motel.location" />
+        </label>
+        <label>
+          Tx: <input type="number" id="tx" data-ng-model="motel.tx" />
+        </label>
+        <input type="submit" value="Generate" />
+      </form>
+      <div id="entries" data-ng-show="motel.entries">
+        <h3>Results</h3>
+        <table>
+          <tr>
+            <th>number</th><th>date</th><th>debit</th><th>credit</th><th>type</th><th>account</th>
+            <th>norm</th><th>businessUnit</th><th>fund</th><th>function</th><th>program</th>
+            <th>beneficiary</th><th>payee</th><th>memo</th><th>location</th><th>employee</th>
+            <th>donor</th><th>microloan</th><th>tx</th><th>reconciled</th><th>enteredBy</th>
+          </tr>
+          <tr data-ng-repeat="entry in motel.entries">
+            <td>{{ entry.number }}</td><td>{{ entry.date }}</td>
+            <td>{{ entry.debit }}</td><td>{{ entry.credit }}</td>
+            <td>{{ entry.type }}</td><td>{{ entry.account }}</td>
+            <td>{{ entry.norm }}</td><td>{{ entry.businessUnit }}</td><td>{{ entry.fund }}</td>
+            <td>{{ entry.function }}</td><td>{{ entry.program }}</td>
+            <td>{{ entry.beneficiary }}</td><td>{{ entry.payee }}</td>
+            <td>{{ entry.memo }}</td><td>{{ entry.location }}</td>
+            <td></td><td></td><td></td><td>{{ entry.tx }}</td>
+            <td></td><td>{{ entry.enteredBy }}</td>
+          </tr>
+        </table>
+      </div>
+    </div>
   </body>
 <script>
 
-var journal = {};
-journal.from = new Date(2013, 6, 1);
-journal.to = new Date(2014, 5, 30);
-journal.unit = "All";
-journal.resultsLoaded = false;
+function twoDecimals(amount) {
+  return (Math.round(amount * Math.pow(10, 2)) / Math.pow(10,2)).toFixed(2);
+}
 
-var journalApp = angular.module('journalApp', []);
+var steadyApp = angular.module("steadyApp", []);
 
-journalApp.controller('JournalCtrl', function ($scope) {
-  $scope.journal = journal;
-  $scope.units = [ "All", "Steady Family", "Steady Savings" ];
+steadyApp.controller("JournalCtrl", function ($scope) {
+
+  var journal = {};
+  journal.from = new Date(2013, 6, 1);
+  journal.to = new Date(2014, 5, 30);
+  journal.unit = "All";
+  journal.fund = "All";
+  journal.resultsLoaded = false;
 
   journal.find = function() {
 
@@ -104,6 +164,7 @@ journalApp.controller('JournalCtrl', function ($scope) {
     dataAsync.then(function(data) {
       return _.filter(data, function(row) {
         return (journal.unit == "All" || journal.unit == row.businessUnit) &&
+          (journal.fund == "All" || journal.fund == row.fund) &&
           row.date >= journal.from && row.date <= journal.to;
       });
     }).then(function(data) {
@@ -126,7 +187,7 @@ journalApp.controller('JournalCtrl', function ($scope) {
             }
           });
         }
-        return total;
+        return twoDecimals(total);
       }
       return _.chain(data)
         .groupBy("account")
@@ -151,6 +212,149 @@ journalApp.controller('JournalCtrl', function ($scope) {
     });
 
   }
+
+  $scope.journal = journal;
+  $scope.units = [ "All", "Steady Family", "Steady Savings" ];
+  $scope.funds = [ "All", "General", "BSF 2013-14" ];
+
+});
+
+steadyApp.controller("MotelCtrl", function ($scope) {
+
+  var motel = {}
+  motel.fund = "BSF 2013-14";
+  motel.checkin = moment(new Date()).startOf("day").toDate();
+  motel.checkout = moment(motel.checkin).add(7, "days").toDate();
+
+  motel.createAsset = function(args) {
+      this.entry += 1;
+      return {
+        number: this.entry,
+        date: args.date.format("M/D/YY"),
+        debit: args.debit,
+        credit: args.credit,
+        type: "Asset",
+        account: args.account,
+        norm: "Debit",
+        businessUnit: "Steady Family",
+        fund: this.fund,
+        function: "",
+        program: "",
+        beneficiary: "",
+        payee: "",
+        memo: "",
+        location: "",
+        employee: "",
+        donor: "",
+        microloan: "",
+        tx: this.tx,
+        reconciled: "",
+        enteredBy: "keith"
+      }
+  }
+
+  motel.createMotelExpense = function(args) {
+      this.entry += 1;
+      return {
+        number: this.entry,
+        date: args.date.format("M/D/YY"),
+        debit: args.debit,
+        credit: "",
+        type: "Expense",
+        account: "Motel",
+        norm: "Debit",
+        businessUnit: "Steady Family",
+        fund: this.fund,
+        function: "Emergency Housing",
+        program: "Diversion",
+        beneficiary: this.family,
+        payee: this.name,
+        memo: "night of " + args.date.format("M/D"),
+        location: this.location,
+        employee: "",
+        donor: "",
+        microloan: "",
+        tx: this.tx,
+        reconciled: "",
+        enteredBy: "keith"
+      }
+  }
+
+  motel.debitAmount = function(lastDay, dayCost, prepaidBalance) {
+    if (lastDay) {
+      if (prepaidBalance == dayCost) {
+        return dayCost;
+      } else {
+        return prepaidBalance;
+      }
+    } else {
+      return dayCost;
+    }
+  }
+
+  function moneyFormat(amount) {
+    return "$" + amount;
+  }
+
+  motel.generate = function() {
+    this.entries = [];
+    this.entry = 0;
+    this.amount = twoDecimals(this.amount);
+
+    var checkin = moment(this.checkin), checkout = moment(this.checkout);
+    var days = checkout.diff(checkin, "days"), dayCost = twoDecimals(this.amount / days);
+
+    var date = moment(motel.checkin);
+
+    var prepaidBalance = twoDecimals(this.amount - dayCost);
+    this.entries.push(this.createAsset({
+      date: date,
+      debit: moneyFormat(prepaidBalance),
+      account: "Prepaid Expense"
+    }));
+    this.entries.push(this.createMotelExpense({
+      date: date,
+      debit: moneyFormat(dayCost),
+    }));
+    this.entries.push(this.createAsset({
+      date: date,
+      credit: moneyFormat(this.amount),
+      account: "Cash"
+    }));
+
+    date.add(1, "days");
+
+    for (var i = 0; i < (days - 1); i++) {
+
+      var debitAmount = this.debitAmount(i == (days - 2), dayCost, prepaidBalance);
+
+      this.entries.push(this.createMotelExpense({
+        date: date,
+        debit: moneyFormat(debitAmount),
+      }));
+      this.entries.push(this.createAsset({
+        date: date,
+        credit: moneyFormat(debitAmount),
+        account: "Prepaid Expense"
+      }));
+
+      date.add(1, "days");
+
+      prepaidBalance = twoDecimals(prepaidBalance - debitAmount);
+    }
+
+    if (prepaidBalance != 0.00) {
+      throw "Prepaid not zero; bug in code";
+    }
+
+    var csv = Papa.unparse(this.entries);
+    console.log(csv);
+
+  }
+
+  $scope.motel = motel;
+  $scope.funds = [ "All", "General", "BSF 2013-14" ];
+
 });
 </script>
 </html>
